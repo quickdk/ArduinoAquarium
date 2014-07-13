@@ -21,10 +21,12 @@ String readString = String(30); //string for fetching data from address
 int Light = 0;
 
 
-// LED and fan
+// LED, fan an relay
+int const pump = 2; //is this the correct pin????
 int const bla = 6;
 int const hvid = 7;
 int const blas = 9;
+boolean maxTemp = true; //To keep water cooling/heating on
 
 // Float switch
 int const fSwitch = 8;
@@ -43,12 +45,14 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature. 
 DallasTemperature sensors(&oneWire);
 //Adress: 0x28, 0xF5, 0xF6, 0x4F, 0x04, 0x00, 0x00, 0x59
+float waterTemp = 0;
 
 //SD setup
 //const int chipSelect = 4;
 
 void setup(){
 
+  pinMode(pump, OUTPUT);
   pinMode(bla, OUTPUT);  
   pinMode(hvid, OUTPUT); 
   pinMode(blas, OUTPUT);
@@ -70,6 +74,10 @@ serialGLCD lcd; // initialisation
 void loop(){
   DateTime now = RTC.now();
   lcd.clearLCD();
+  
+  //Get and store current watertemperature 
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  waterTemp = sensors.getTempCByIndex(0);
 
    // Create a client connection
 EthernetClient client = server.available();
@@ -166,8 +174,7 @@ EthernetClient client = server.available();
             
             //Water_Temp
             client.print("Aquarium temperature is ");
-            sensors.requestTemperatures(); // Send the command to get temperatures
-            client.print(sensors.getTempCByIndex(0));
+            client.print(waterTemp);
             client.print(" *C");
             client.println("<br />");
             client.println("<br />");
@@ -207,7 +214,7 @@ EthernetClient client = server.available();
              client.println("<br />");
            
            
-            client.println("<meta http-equiv=\"refresh\" content=\"10\">"); //refresh content every 5 sec.
+            client.println("<meta http-equiv=\"refresh\" content=\"10\">"); //refresh content every 10 sec.
 	    client.println("</body></html>");
                
 	    //clearing string for next read
@@ -223,30 +230,74 @@ EthernetClient client = server.available();
     int h = now.hour();
      if (h == 14){
       Sunrise();
+      waterHeating();
      }
-     if (h == 15 || h == 16 || h == 17 || h == 18 || h == 19 || h == 20){
+     else if (h == 15 || h == 16 || h == 17 || h == 18 || h == 19 || h == 20){
       Light_On();
+      waterHeating();
       }
-     if (h==21){
+     else if (h==21){
       Sunset();
+      waterHeating();
      }
-     if (now.hour() >= 22 || now.hour() <= 11){
-      Light_Off();  
+     else if (now.hour() >= 22 || now.hour() <= 11){
+      Light_Off();
+      waterCooling();  
      }
   }
-  if (Light==1){
+  else if (Light==1){
     Light_On();
+    waterHeating();
   }
-  if (Light==2){
+  else if (Light==2){
     Light_Dim();
+    waterHeating();
   }
-  if (Light==3){
+  else if (Light==3){
     Light_Off();
-  }
-     
+    waterCooling();
+  }     
 
 //Noget med logging her! Læs om strings. 
   
+  
+}
+void flowControl() {
+  DateTime now = RTC.now();
+  if (now.minute() == 0 || now.minute() == 30) {
+    digitalWrite(pump, LOW);
+  }
+  else {
+    digitalWrite(pump, HIGH);
+  }
+}  
+void waterHeating(){
+  if (waterTemp < 27 && waterTemp > -1){ // > -1 because some times the thermometer gets a false reading of -127
+    maxTemp = false;
+  }
+  if (!maxTemp){
+    digitalWrite(pump, LOW);
+    if (waterTemp > 28) {
+      maxTemp = true;
+    }
+  }
+  else {
+    flowControl(); //Turn pump on once every 30 minutes else off
+  }
+}
+void waterCooling(){
+    if (waterTemp > 29){
+    maxTemp = false;
+  }
+  if (!maxTemp){
+    digitalWrite(pump, LOW);
+    if (waterTemp < 28 && waterTemp > -1) { // > -1 because some times the thermometer gets a false reading of -127
+      maxTemp = true;
+    }
+  }
+  else {
+      flowControl(); //Turn pump on once every 30 minutes else off
+    }
 }
 float lightTemp(){
   int a=analogRead(0);
@@ -268,7 +319,7 @@ void Light_Off(){
 void Sunset(){
   DateTime now = RTC.now();
   analogWrite (hvid, map(now.minute(), 0,59,200,0) );
-  analogWrite (bla, map(now.minute(), 0,59,200,15) );
+  analogWrite (bla, map(now.minute(), 0,59,200,20) );
   analogWrite (blas, 255) ;
 }
 void Sunrise(){
